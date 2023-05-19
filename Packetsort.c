@@ -54,7 +54,7 @@ SEM sem_bit, s1;                                        // Semaphore for Bitmust
 
 Queue q1, q2, q3, q4;
 
-void initQueues(){
+void initQueues(void){
     q1.in = 0;
     q1.out = 0;
     q2.in = 0;
@@ -63,12 +63,6 @@ void initQueues(){
     q3.out = 0;
     q4.in = 0;
     q4.out = 0;
-}
-
-void auswLoop(Queue *q, int ausw){
-    while(1){
-
-    }
 }
 
 void activate(int val)
@@ -92,7 +86,41 @@ void deactivate(int val)
   rt_sem_signal(&sem_bit);
 }
 
-void test_machine()
+//void auswLoop(Queue *q, int ausw){
+void auswLoop(long l){
+    Queue *q;
+    int ausw;
+    if(l == 2){
+	q = &q2;
+	ausw = 4;
+    }
+    activate(band2);
+    enqueue(q, 4);
+    int stat;
+    while(1){
+	stat = inb(CARD +4);
+    	rt_printk("Stat = %3d \n ", ~stat);
+	if(((~stat) & ausw) == ausw){
+	    if(dequeue(q) == ausw){
+		while(1){
+		    stat = inb(CARD +4);
+		    if(((~stat) & ausw) == 0){
+			rt_sleep(nano2count(600000000));
+  	    		activate(ausw2);
+			rt_printk("Ausgeworfen!\n");
+	    		rt_sleep(nano2count(AUSWZEIT));
+	    		deactivate(ausw2);
+			deactivate(band2);
+			break;
+		    }
+		}
+	    }
+	}
+	rt_task_wait_period();
+    }
+}
+
+void test_machine(void)
 {
 
   rt_printk(" -->Test Machine start\n");
@@ -120,11 +148,10 @@ void test_machine()
   rt_sleep(nano2count(600 * 1000 * 1000)); // 30 Sekunden bitte???
 }
 
-void LSpoller()
+void LSpoller(void)
 { // states pruefen
   int temp, oben;
-  while (1)
-  {
+  while (1){
     temp = inb(CARD + 4);
     oben = inb(CARD + 5);
     rt_printk("LSpoller in = %3d \n ", temp);
@@ -142,16 +169,16 @@ static __init int parallel_init(void)
 
   RTIME tperiod, tstart1, now;
   rt_mount();
-  rt_task_init(&polltask, LSpoller, 0x0, 3000, 4, 0, 0);
+  rt_task_init(&polltask, auswLoop, 2, 3000, 4, 0, 0);
   rt_typed_sem_init(&sem_bit, 1, RES_SEM);
   rt_typed_sem_init(&s1, 1, RES_SEM);
   rt_set_periodic_mode();
-  start_rt_timer(0);
+  start_rt_timer(nano2count(500000));
 
   now = rt_get_time();
-  tstart1 = now + nano2count(10000000);
-  rt_task_make_periodic(&polltask, tstart1, nano2count(our1p5ms * 2));
-  rt_printk("Module loadedzor\n");
+  tstart1 = now + nano2count(100000000);
+  rt_task_make_periodic(&polltask, tstart1, nano2count(500000000));
+  rt_printk("Module loaded\n");
   return 0;
 }
 
