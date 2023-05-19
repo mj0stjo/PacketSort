@@ -1,7 +1,6 @@
 #ifndef QUEUE_H
 #define QUEUE_H
 
-#include <stdio.h>
 #define len 10
 
 struct Queue{
@@ -18,6 +17,7 @@ void enqueue(Queue* q, int num){
 }
 
 int dequeue(Queue* q){
+    if(q->in == q->out) return -1;
     int num = q->buff[q->out];
     q->out = ((q->out)+1) % len;
     return num;
