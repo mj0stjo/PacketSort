@@ -42,7 +42,7 @@
 #define CARD 0xc000 // absolute PCI-Kartenadresse
 
 // globalvars:
-RT_TASK polltask, rs232task;
+RT_TASK ausw1task, ausw2task, ausw3task, ausw4task, rs232task;
 int bitmuster = 0x00; // state der ganzen Maschine
 int stateLS = 0;      // state der Lichtschranken
 int lost = 0;         // Pakete ohne Adresse
@@ -86,34 +86,52 @@ void deactivate(int val)
   rt_sem_signal(&sem_bit);
 }
 
-//void auswLoop(Queue *q, int ausw){
+
 void auswLoop(long l){
     Queue *q;
-    int ausw;
+    Queue *nq;
+    int schranke = l;
+
     if(l == 2){
-	q = &q2;
-	ausw = 4;
+	q = &q1;
+	nq = &q2;
     }
-    activate(band2);
-    enqueue(q, 4);
+    else if(l == 4){
+	q = &q2;
+	nq = &q3;
+
+
+    }
+    else if(l == 8){
+	q = &q3;
+	nq = &q4;
+
+    }
+    else if(l == 16){
+	q = &q4;
+
+    }
     int stat;
     while(1){
 	stat = inb(CARD +4);
     	rt_printk("Stat = %3d \n ", ~stat);
-	if(((~stat) & ausw) == ausw){
-	    if(dequeue(q) == ausw){
-		while(1){
-		    stat = inb(CARD +4);
-		    if(((~stat) & ausw) == 0){
+	if(((~stat) & schranke) == schranke){
+            int qVal =  dequeue(q);
+	    while(1){
+		stat = inb(CARD +4);
+		if(((~stat) & schranke) == 0){
+	            if(qVal == schranke && l != 16){
 			rt_sleep(nano2count(600000000));
-  	    		activate(ausw2);
+  	    		activate(schranke*4);
 			rt_printk("Ausgeworfen!\n");
 	    		rt_sleep(nano2count(AUSWZEIT));
-	    		deactivate(ausw2);
-			deactivate(band2);
-			break;
+	    		deactivate(schranke *4);
+      		    }else{
+			if(l != 16) enqueue(nq, qVal);
 		    }
+		    break;
 		}
+		rt_task_wait_period();
 	    }
 	}
 	rt_task_wait_period();
@@ -122,8 +140,20 @@ void auswLoop(long l){
 
 void test_machine(void)
 {
+    	activate(band1);
+	activate(band2);
+	enqueue(&q1, 2);
+	enqueue(&q1, 4);
+	enqueue(&q1, 8);
+	enqueue(&q1, 16);
+	enqueue(&q1, 10);
+	enqueue(&q1, 8);
+	enqueue(&q1, 4);
+	enqueue(&q1, 2);
+	enqueue(&q1, 8);
 
-  rt_printk(" -->Test Machine start\n");
+
+  /*rt_printk(" -->Test Machine start\n");
   activate(band1);
   deactivate(scanner);
   rt_sleep(nano2count(300 * 1000 * 1000)); // 15 Sekunden bitte???
@@ -145,7 +175,9 @@ void test_machine(void)
   deactivate(ausw3);
   rt_sleep(nano2count(300 * 1000 * 1000)); // 15 Sekunden bitte???
   activate(band1 + band2 + scanner);
-  rt_sleep(nano2count(600 * 1000 * 1000)); // 30 Sekunden bitte???
+  rt_sleep(nano2count(600 * 1000 * 1000)); // 30 Sekunden bitte???*/
+
+
 }
 
 void LSpoller(void)
@@ -164,12 +196,18 @@ void LSpoller(void)
 static __init int parallel_init(void)
 {
   initQueues();
+  test_machine();
 
   deactivate(schieber);
 
-  RTIME tperiod, tstart1, now;
+  RTIME tperiod, tstart1, tstart2, tstart3, tstart4, now;
   rt_mount();
-  rt_task_init(&polltask, auswLoop, 2, 3000, 4, 0, 0);
+
+  rt_task_init(&ausw1task, auswLoop, 2, 3000, 4, 0, 0);
+  rt_task_init(&ausw2task, auswLoop, 4, 3000, 5, 0, 0);
+  rt_task_init(&ausw3task, auswLoop, 8, 3000, 6, 0, 0);
+  rt_task_init(&ausw4task, auswLoop, 16, 3000, 7, 0, 0);
+
   rt_typed_sem_init(&sem_bit, 1, RES_SEM);
   rt_typed_sem_init(&s1, 1, RES_SEM);
   rt_set_periodic_mode();
@@ -177,17 +215,32 @@ static __init int parallel_init(void)
 
   now = rt_get_time();
   tstart1 = now + nano2count(100000000);
-  rt_task_make_periodic(&polltask, tstart1, nano2count(500000000));
+  tstart2 = tstart1 + nano2count(100);
+  tstart3 = tstart2 + nano2count(100);
+  tstart4 = tstart3 + nano2count(100);
+  rt_task_make_periodic(&ausw1task, tstart1, nano2count(500000000));
+  rt_task_make_periodic(&ausw2task, tstart1, nano2count(500000000));
+  rt_task_make_periodic(&ausw3task, tstart1, nano2count(500000000));
+  rt_task_make_periodic(&ausw4task, tstart1, nano2count(500000000));
   rt_printk("Module loaded\n");
   return 0;
 }
 
 static __exit void parallel_exit(void)
 {
+  
+
+    	deactivate(band1);
+	deactivate(band2);
+
+
   stop_rt_timer();
   rt_sem_delete(&s1);
   rt_sem_delete(&sem_bit);
-  rt_task_delete(&polltask);
+  rt_task_delete(&ausw1task);
+  rt_task_delete(&ausw2task);
+  rt_task_delete(&ausw3task);
+  rt_task_delete(&ausw4task);
   outb(0, CARD + 0); // 00000000
   outb(0, CARD + 1); // 00000000
   activate(scanner);
