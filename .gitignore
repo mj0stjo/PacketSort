@@ -2,4 +2,4 @@ test.c
 *.ko
 *.o
 .idea
-.exe
+*.exe
