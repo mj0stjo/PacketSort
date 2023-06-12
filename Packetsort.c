@@ -1,10 +1,13 @@
 #include <linux/init.h>
+#include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/pci.h>
 
 #include <rtai.h>
 #include <rtai_sched.h>
 #include <rtai_sem.h>
+#include <rtai_fifos.h>
+#include <rtai_math.h>
 
 #include "Queue.h"
 #include "Util.h"
@@ -43,7 +46,7 @@
 #define CARD 0xc000 // absolute PCI-Kartenadresse
 
 // globalvars:
-RT_TASK ausw1task, ausw2task, ausw3task, ausw4task, rs232task;
+RT_TASK ausw1task, ausw2task, ausw3task, ausw4task, scantask, rs232task;
 int bitmuster = 0x00; // state der ganzen Maschine
 int stateLS = 0;      // state der Lichtschranken
 int lost = 0;         // Pakete ohne Adresse
@@ -74,10 +77,58 @@ void deactivate(int val) { // schreibe 32 Bit auf Karte
     rt_sem_signal(&sem_bit);
 }
 
+void trigger_scanner(void){
+    deactivate(scanner);
+    rt_sleep(nano2count(SCANNER_RUHEZEIT)); //muss sein, sonst wird nicht reaktiviert
+    activate(scanner);
+}
+
+int computePosition(int ean) {
+    //rt_printk(ean);
+    ean /= 1000000000000;
+    if (ean >= 0 && ean <= 2) {
+        return 1;
+    } else if (ean >= 3 && ean <= 5) {
+        return 2;
+    } else if (ean >= 6 && ean <= 9) {
+        return 3;
+    } else {
+        return 4;
+    }
+}
+
+#define FIFO_SIZE 1024
+#define FIFO_NR 3
+
+int fifo_handler(unsigned int fifo)
+{
+
+  char command[FIFO_SIZE];
+  int r;
+  int ean;
+  int pos;
+
+  r = rtf_get(FIFO_NR, command, sizeof(command)-1);
+
+
+  if (r > 0) {
+    command[r] = 0;
+    char temp[FIFO_SIZE];
+    sscanf(command,"%s",&temp);
+    sscanf(temp,"%d",&ean);
+    rt_printk("%s", command);
+    rt_printk("%s", temp);
+    rt_printk("%d", ean);
+    //enqueue(&qs[0], computePosition(ean));
+    //rt_printk(ean);
+    //trigger_scanner();
+  }
+  return 0;
+}
+
 int SchrankeUnterbrochen(int schranke){
     int stat = inb(CARD + 4);
-    rt_printk("Stat = %3d \n ", ~stat);
-    return ((~stat) & pow(2, schranke)) == pow(2, schranke);
+    return ((~stat) & powx(2, schranke)) == powx(2, schranke);
 }
 
 void auswLoop(long schranke) {
@@ -89,10 +140,10 @@ void auswLoop(long schranke) {
                 if (!SchrankeUnterbrochen(schranke)) {
                     if (qVal == schranke && schranke != 4) {
                         rt_sleep(nano2count(600000000));
-                        activate(pow(2, schranke+2));
+                        activate(powx(2, schranke+2));
                         rt_printk("Ausgeworfen!\n");
                         rt_sleep(nano2count(AUSWZEIT));
-                        deactivate(pow(2, schranke+2));
+                        deactivate(powx(2, schranke+2));
                     } else {
                         if (schranke != 4) enqueue(&qs[schranke], qVal);
                     }
@@ -105,24 +156,29 @@ void auswLoop(long schranke) {
     }
 }
 
+void scanLoop(long l){
+
+    trigger_scanner();
+
+}
 
 void initMachine(void) {
-    for(int i = 0; i<4; i++){
+    int i;
+    for(i = 0; i<4; i++){
         qs[i].in = 0;
         qs[i].out = 0;
     }
-
     activate(band1);
     activate(band2);
-    enqueue(&qs[0], 1);
-    enqueue(&qs[0], 2);
-    enqueue(&qs[0], 3);
-    enqueue(&qs[0], 4);
-    enqueue(&qs[0], 10);
-    enqueue(&qs[0], 3);
-    enqueue(&qs[0], 2);
-    enqueue(&qs[0], 1);
-    enqueue(&qs[0], 3);
+    //enqueue(&qs[0], 1);
+    //enqueue(&qs[0], 2);
+    //enqueue(&qs[0], 3);
+    //enqueue(&qs[0], 4);
+    //enqueue(&qs[0], 10);
+    //enqueue(&qs[0], 3);
+    //enqueue(&qs[0], 2);
+    //enqueue(&qs[0], 1);
+    //enqueue(&qs[0], 3);
 }
 
 void exitMachine(void) {
@@ -136,13 +192,17 @@ static __init int parallel_init(void) {
 
     deactivate(schieber);
 
-    RTIME tperiod, tstart1, tstart2, tstart3, tstart4, now;
+    RTIME tperiod, tstart1, now;
     rt_mount();
+
+    rtf_create(FIFO_NR, FIFO_SIZE);
+    rtf_create_handler(FIFO_NR, &fifo_handler);
 
     rt_task_init(&ausw1task, auswLoop, 1, 3000, 4, 0, 0);
     rt_task_init(&ausw2task, auswLoop, 2, 3000, 5, 0, 0);
     rt_task_init(&ausw3task, auswLoop, 3, 3000, 6, 0, 0);
     rt_task_init(&ausw4task, auswLoop, 4, 3000, 7, 0, 0);
+    rt_task_init(&scantask, scanLoop, 0, 3000, 8, 0, 0);
 
     rt_typed_sem_init(&sem_bit, 1, RES_SEM);
     rt_typed_sem_init(&s1, 1, RES_SEM);
@@ -151,14 +211,12 @@ static __init int parallel_init(void) {
 
     now = rt_get_time();
     tstart1 = now + nano2count(100000000);
-    tstart2 = tstart1 + nano2count(100);
-    tstart3 = tstart2 + nano2count(100);
-    tstart4 = tstart3 + nano2count(100);
 
     rt_task_make_periodic(&ausw1task, tstart1, nano2count(500000000));
     rt_task_make_periodic(&ausw2task, tstart1, nano2count(500000000));
     rt_task_make_periodic(&ausw3task, tstart1, nano2count(500000000));
     rt_task_make_periodic(&ausw4task, tstart1, nano2count(500000000));
+    rt_task_make_periodic(&scantask, tstart1, nano2count(500000000));
     rt_printk("Module loaded\n");
     return 0;
 }
@@ -170,6 +228,9 @@ static __exit void parallel_exit(void) {
     stop_rt_timer();
     rt_sem_delete(&s1);
     rt_sem_delete(&sem_bit);
+
+    
+    rtf_destroy(FIFO_NR);
 
     rt_task_delete(&ausw1task);
     rt_task_delete(&ausw2task);
@@ -187,3 +248,4 @@ module_init(parallel_init);
 module_exit(parallel_exit);
 
 MODULE_LICENSE("GPL");
+

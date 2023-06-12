@@ -14,6 +14,8 @@ The repository is organized as follows:
 - [Packetsort.c](/Packetsort.c): The main source code file containing the implementation of the packet sorting conveyor.
 - [Queue.h](/Queue.h): Header file containing the definition of a queue data structure.
 - [Util.h](/Util.h): Header file containing utility function declarations.
+- [RTAI_MODULES_LOAD.SH](/RTAI_MODULES_LOAD.SH): Loads all the necessary kernel modules.
+- [USBREAD](/USBREAD): Configures the USB input for reading the barcodescanner values.
 
 ## Contributing
 

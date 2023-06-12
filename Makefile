@@ -8,7 +8,7 @@ obj-m	:= Packetsort.o
 
 KDIR	:= /lib/modules/$(shell uname -r)/build
 PWD	:= $(shell pwd)
-EXTRA_CFLAGS := -I/usr/realtime/include -I/usr/src/linux/include
+EXTRA_CFLAGS := -I/usr/realtime/include -I/usr/src/linux/include -D_FORTIFY_SOURCE=0 -ffast-math -mhard-float -I/usr/include
 
 default:
 	$(MAKE) -C $(KDIR) SUBDIRS=$(PWD) modules

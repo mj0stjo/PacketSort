@@ -1,0 +1,1 @@
+stty 9600 -F /dev/ttyUSB0 
