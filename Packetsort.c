@@ -83,14 +83,12 @@ void trigger_scanner(void){
     activate(scanner);
 }
 
-int computePosition(int ean) {
-    //rt_printk(ean);
-    ean /= 1000000000000;
-    if (ean >= 0 && ean <= 2) {
+int computePosition(int eanLastDigit) {
+    if (eanLastDigit >= 0 && eanLastDigit <= 2) {
         return 1;
-    } else if (ean >= 3 && ean <= 5) {
+    } else if (eanLastDigit >= 3 && eanLastDigit <= 5) {
         return 2;
-    } else if (ean >= 6 && ean <= 9) {
+    } else if (eanLastDigit >= 6 && eanLastDigit <= 9) {
         return 3;
     } else {
         return 4;
@@ -100,27 +98,39 @@ int computePosition(int ean) {
 #define FIFO_SIZE 1024
 #define FIFO_NR 3
 
+int scanCount = 0;
+
 int fifo_handler(unsigned int fifo)
 {
 
   char command[FIFO_SIZE];
   int r;
-  int ean;
-  int pos;
+  int eanLastDigit;
 
   r = rtf_get(FIFO_NR, command, sizeof(command)-1);
 
 
   if (r > 0) {
+    if(++scanCount % 2 == 0) return 0;
+
     command[r] = 0;
-    char temp[FIFO_SIZE];
-    sscanf(command,"%s",&temp);
-    sscanf(temp,"%d",&ean);
-    rt_printk("%s", command);
-    rt_printk("%s", temp);
-    rt_printk("%d", ean);
-    //enqueue(&qs[0], computePosition(ean));
-    //rt_printk(ean);
+    char temp[14];
+    sscanf(command,"%s",temp);
+
+    rt_printk("string: %s\n", temp);
+
+    int i;
+    for(i=0; i<14; i++){
+	rt_printk("%d: %c\n", i, temp[i]);
+    }
+
+    eanLastDigit = temp[13] - '0';
+    rt_printk("num: %d\n", eanLastDigit);
+
+    int pos = computePosition(eanLastDigit);
+    rt_printk("pos: %d\n", pos);
+    
+    enqueue(&qs[0], pos);
     //trigger_scanner();
   }
   return 0;
