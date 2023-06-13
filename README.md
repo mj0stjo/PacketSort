@@ -16,6 +16,7 @@ The repository is organized as follows:
 - [Util.h](/Util.h): Header file containing utility function declarations.
 - [RTAI_MODULES_LOAD.SH](/RTAI_MODULES_LOAD.SH): Loads all the necessary kernel modules.
 - [USBREAD](/USBREAD): Configures the USB input for reading the barcodescanner values.
+- [barcode.sh](/barcode.sh): Reads the scanner data from the USB port and pushes it into the FIFO.
 
 ## Contributing
 
