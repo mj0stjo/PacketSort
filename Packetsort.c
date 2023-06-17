@@ -14,9 +14,6 @@
 
 // times:
 #define TICK_PERIOD 500000000
-#define our20ms 200000000
-#define our1p5ms 1200000000
-#define our600us 600000000
 #define AUSWZEIT 400 * 1000 * 1000          // 400ms warten bis wieder zuklappen
 #define ZEITVORAUSW 350 * 1000 * 1000       // 350ms warten bevor hochklappen
 #define ZEITVORBAND1START 400 * 1000 * 1000 // warten bis band1 anläuft
@@ -57,6 +54,7 @@ int charcounter = 0;
 SEM sem_bit, s1;                                        // Semaphore for Bitmuster
 
 Queue qs[4];
+SEM qsSem[4];
 
 void activate(int val) { // schreibe 32 Bit auf Karte
     rt_sem_wait(&sem_bit);
@@ -130,8 +128,9 @@ int fifo_handler(unsigned int fifo)
     int pos = computePosition(eanLastDigit);
     rt_printk("pos: %d\n", pos);
     
+    rt_sem_wait(&qsSem[0]);
     enqueue(&qs[0], pos);
-    //trigger_scanner();
+    rt_sem_signal(&qsSem[0]);
   }
   return 0;
 }
@@ -145,7 +144,9 @@ void auswLoop(long schranke) {
     int stat;
     while (1) {
         if (SchrankeUnterbrochen(schranke)) {
+            rt_sem_wait(&qsSem[schranke-1]);
             int qVal = dequeue(&qs[schranke-1]);
+            rt_sem_signal(&qsSem[schranke-1]);
             while (1) {
                 if (!SchrankeUnterbrochen(schranke)) {
                     if (qVal == schranke && schranke != 4) {
@@ -155,7 +156,11 @@ void auswLoop(long schranke) {
                         rt_sleep(nano2count(AUSWZEIT));
                         deactivate(powx(2, schranke+2));
                     } else {
-                        if (schranke != 4) enqueue(&qs[schranke], qVal);
+                        if (schranke != 4){
+                            rt_sem_wait(&qsSem[schranke]);
+                            enqueue(&qs[schranke], qVal);
+                            rt_sem_signal(&qsSem[schranke]);
+                        }
                     }
                     break;
                 }
@@ -167,17 +172,32 @@ void auswLoop(long schranke) {
 }
 
 void scanLoop(long l){
-
     trigger_scanner();
+
+    while (1) {
+        if (SchrankeUnterbrochen(0)) {
+            while (1) {
+                if (!SchrankeUnterbrochen(schranke)) {
+                    trigger_scanner();
+                    break;
+                }
+                rt_task_wait_period();
+            }
+        }
+        rt_task_wait_period();
+    }
 
 }
 
 void initMachine(void) {
+    deactivate(schieber);
+
     int i;
     for(i = 0; i<4; i++){
         qs[i].in = 0;
         qs[i].out = 0;
     }
+
     activate(band1);
     activate(band2);
     //enqueue(&qs[0], 1);
@@ -198,12 +218,15 @@ void exitMachine(void) {
 
 
 static __init int parallel_init(void) {
-    initMachine();
-
-    deactivate(schieber);
-
     RTIME tperiod, tstart1, now;
     rt_mount();
+
+    initMachine();
+
+    int i;
+    for(i = 0; i<4; i++){
+        rt_sem_init(&qsSem[i],1);
+    }
 
     rtf_create(FIFO_NR, FIFO_SIZE);
     rtf_create_handler(FIFO_NR, &fifo_handler);
@@ -238,6 +261,10 @@ static __exit void parallel_exit(void) {
     stop_rt_timer();
     rt_sem_delete(&s1);
     rt_sem_delete(&sem_bit);
+    int i;
+    for(i = 0; i<4; i++){
+        rt_sem_delete(&qsSem[i],1);
+    }
 
     
     rtf_destroy(FIFO_NR);
