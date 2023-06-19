@@ -51,7 +51,7 @@ unsigned char port_a;
 unsigned char port_b;
 char ch, eancode[LENGTH_EAN];
 int charcounter = 0;
-SEM sem_bit, s1;                                        // Semaphore for Bitmuster
+SEM sem_bit;                                        // Semaphore for Bitmuster
 
 Queue qs[4];
 SEM qsSem[4];
@@ -82,11 +82,12 @@ void trigger_scanner(void){
 }
 
 int computePosition(int eanLastDigit) {
+    rt_printk("%d\n", eanLastDigit);
     if (eanLastDigit >= 0 && eanLastDigit <= 2) {
         return 1;
-    } else if (eanLastDigit >= 3 && eanLastDigit <= 5) {
+    } else if (eanLastDigit >= 3 && eanLastDigit <= 7) {
         return 2;
-    } else if (eanLastDigit >= 6 && eanLastDigit <= 9) {
+    } else if (eanLastDigit >= 8 && eanLastDigit <= 9) {
         return 3;
     } else {
         return 4;
@@ -109,11 +110,14 @@ int fifo_handler(unsigned int fifo)
 
 
   if (r > 0) {
-    if(++scanCount % 2 == 0) return 0;
+    scanCount++;
+    if(scanCount % 2 == 0) return 0;
 
     command[r] = 0;
     char temp[14];
     sscanf(command,"%s",temp);
+
+    if(temp[1] < '0' || temp[1] > '9') return 0;
 
     rt_printk("string: %s\n", temp);
 
@@ -136,7 +140,10 @@ int fifo_handler(unsigned int fifo)
 }
 
 int SchrankeUnterbrochen(int schranke){
+    rt_sem_wait(&sem_bit);
     int stat = inb(CARD + 4);
+    rt_sem_signal(&sem_bit);
+    rt_printk("%d\n", stat);
     return ((~stat) & powx(2, schranke)) == powx(2, schranke);
 }
 
@@ -173,16 +180,21 @@ void auswLoop(long schranke) {
 
 void scanLoop(long l){
     trigger_scanner();
-
     while (1) {
         if (SchrankeUnterbrochen(0)) {
-            while (1) {
-                if (!SchrankeUnterbrochen(schranke)) {
+	    deactivate(band1);
+            /*while (1) {
+                if (!SchrankeUnterbrochen(0)) {
+		    rt_printk("Band An!\n");
                     trigger_scanner();
+	 	    activate(band1);
                     break;
                 }
                 rt_task_wait_period();
-            }
+            }*/
+	    //rt_sleep(nano2count(ZEITVORBAND1START));
+	    activate(band1);
+
         }
         rt_task_wait_period();
     }
@@ -200,20 +212,12 @@ void initMachine(void) {
 
     activate(band1);
     activate(band2);
-    //enqueue(&qs[0], 1);
-    //enqueue(&qs[0], 2);
-    //enqueue(&qs[0], 3);
-    //enqueue(&qs[0], 4);
-    //enqueue(&qs[0], 10);
-    //enqueue(&qs[0], 3);
-    //enqueue(&qs[0], 2);
-    //enqueue(&qs[0], 1);
-    //enqueue(&qs[0], 3);
 }
 
 void exitMachine(void) {
     deactivate(band1);
     deactivate(band2);
+    deactivate(scanner);
 }
 
 
@@ -238,7 +242,6 @@ static __init int parallel_init(void) {
     rt_task_init(&scantask, scanLoop, 0, 3000, 8, 0, 0);
 
     rt_typed_sem_init(&sem_bit, 1, RES_SEM);
-    rt_typed_sem_init(&s1, 1, RES_SEM);
     rt_set_periodic_mode();
     start_rt_timer(nano2count(500000));
 
@@ -259,11 +262,10 @@ static __exit void parallel_exit(void) {
     exitMachine();
 
     stop_rt_timer();
-    rt_sem_delete(&s1);
     rt_sem_delete(&sem_bit);
     int i;
     for(i = 0; i<4; i++){
-        rt_sem_delete(&qsSem[i],1);
+        rt_sem_delete(&qsSem[i]);
     }
 
     
@@ -273,6 +275,7 @@ static __exit void parallel_exit(void) {
     rt_task_delete(&ausw2task);
     rt_task_delete(&ausw3task);
     rt_task_delete(&ausw4task);
+    rt_task_delete(&scantask);
 
     outb(0, CARD + 0); // 00000000
     outb(0, CARD + 1); // 00000000
@@ -285,4 +288,5 @@ module_init(parallel_init);
 module_exit(parallel_exit);
 
 MODULE_LICENSE("GPL");
+
 
