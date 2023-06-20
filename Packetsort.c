@@ -183,18 +183,15 @@ void scanLoop(long l){
     while (1) {
         if (SchrankeUnterbrochen(0)) {
 	    deactivate(band1);
-            /*while (1) {
+            while (1) {
                 if (!SchrankeUnterbrochen(0)) {
-		    rt_printk("Band An!\n");
+		            rt_printk("Band An!\n");
                     trigger_scanner();
-	 	    activate(band1);
+	 	            activate(band1);
                     break;
                 }
                 rt_task_wait_period();
-            }*/
-	    //rt_sleep(nano2count(ZEITVORBAND1START));
-	    activate(band1);
-
+            }
         }
         rt_task_wait_period();
     }
