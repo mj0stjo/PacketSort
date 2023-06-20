@@ -15,17 +15,13 @@
 // times:
 #define TICK_PERIOD 500000000
 #define AUSWZEIT 400 * 1000 * 1000          // 400ms warten bis wieder zuklappen
-#define ZEITVORAUSW 350 * 1000 * 1000       // 350ms warten bevor hochklappen
-#define ZEITVORBAND1START 400 * 1000 * 1000 // warten bis band1 anläuft
+#define ZEITVORAUSW 600000000
 #define SCANNER_RUHEZEIT 13 * 1000 * 10000
 
 // devices: Zum Aktivieren eines Device muss das aktuelle Bit-Muster
 //	   mit seiner Adresse verORt werden.
 //	   Zum Deaktivieren eines Device muss das aktuelle Bit-Muster
 //	   mit seiner Adresse verXORt werden.
-#define PCI_VENDOR_ID_KOLTER 0x1001
-#define PCI_DEVICE_ID_KOLTER_DIO 0x11
-
 #define band1 0x01    // 1
 #define band2 0x02    // 2
 #define schieber 0x04 // 4
@@ -33,44 +29,25 @@
 #define ausw2 0x10    // 16
 #define ausw3 0x20    // 32
 #define scanner 0x80  // 128
-#define keinLS e0
-#define LS0 e1
-#define LS1 e2
-#define LS2 e4
-#define LS3 e8
-#define LENGTH_EAN 20
-#define PCI_DEVICE_ID_KOLTER_DIO 0x11
 #define CARD 0xc000 // absolute PCI-Kartenadresse
 
 // globalvars:
 RT_TASK ausw1task, ausw2task, ausw3task, ausw4task, scantask, rs232task;
 int bitmuster = 0x00; // state der ganzen Maschine
-int stateLS = 0;      // state der Lichtschranken
-int lost = 0;         // Pakete ohne Adresse
-unsigned char port_a;
-unsigned char port_b;
-char ch, eancode[LENGTH_EAN];
-int charcounter = 0;
-SEM sem_bit;                                        // Semaphore for Bitmuster
-
-Queue qs[4];
-SEM qsSem[4];
+Queue qs[4];          // Auswurf Warteschlangen
+SEM sem_bit;          // Semaphore for Bitmuster 
+SEM qsSem[4];         // Semaphoren für Auswurf Warteschlangen
 
 void activate(int val) { // schreibe 32 Bit auf Karte
     rt_sem_wait(&sem_bit);
-    // rt_printk("val: %x\n",val);
-    // rt_printk("bitmusteralt: %x\n",bitmuster);
     bitmuster = bitmuster | val;
     outb(bitmuster, CARD + 0);
-    // rt_printk("bitmusterneu: %x\n",bitmuster);
     rt_sem_signal(&sem_bit);
 }
 
 void deactivate(int val) { // schreibe 32 Bit auf Karte
     rt_sem_wait(&sem_bit);
-    // rt_printk("deactiv val: %x\n",val);
     bitmuster = bitmuster ^ val;
-    // rt_printk("bitmuster deac: %x\n",bitmuster);
     outb(bitmuster, CARD + 0);
     rt_sem_signal(&sem_bit);
 }
@@ -121,13 +98,7 @@ int fifo_handler(unsigned int fifo)
 
     rt_printk("string: %s\n", temp);
 
-    int i;
-    for(i=0; i<14; i++){
-	rt_printk("%d: %c\n", i, temp[i]);
-    }
-
     eanLastDigit = temp[13] - '0';
-    rt_printk("num: %d\n", eanLastDigit);
 
     int pos = computePosition(eanLastDigit);
     rt_printk("pos: %d\n", pos);
@@ -143,7 +114,7 @@ int SchrankeUnterbrochen(int schranke){
     rt_sem_wait(&sem_bit);
     int stat = inb(CARD + 4);
     rt_sem_signal(&sem_bit);
-    rt_printk("%d\n", stat);
+    //rt_printk("%d\n", stat);
     return ((~stat) & powx(2, schranke)) == powx(2, schranke);
 }
 
@@ -157,7 +128,7 @@ void auswLoop(long schranke) {
             while (1) {
                 if (!SchrankeUnterbrochen(schranke)) {
                     if (qVal == schranke && schranke != 4) {
-                        rt_sleep(nano2count(600000000));
+                        rt_sleep(nano2count(ZEITVORAUSW));
                         activate(powx(2, schranke+2));
                         rt_printk("Ausgeworfen!\n");
                         rt_sleep(nano2count(AUSWZEIT));
@@ -185,7 +156,7 @@ void scanLoop(long l){
 	    deactivate(band1);
             while (1) {
                 if (!SchrankeUnterbrochen(0)) {
-		            rt_printk("Band An!\n");
+		            //rt_printk("Band 1 An!\n");
                     trigger_scanner();
 	 	            activate(band1);
                     break;
@@ -278,12 +249,10 @@ static __exit void parallel_exit(void) {
     outb(0, CARD + 1); // 00000000
     activate(scanner);
     rt_umount();
-    rt_printk("Unloading modulski\n------------------\n");
+    rt_printk("Unloading module\n------------------\n");
 }
 
 module_init(parallel_init);
 module_exit(parallel_exit);
 
 MODULE_LICENSE("GPL");
-
-
