@@ -32,11 +32,11 @@
 #define CARD 0xc000 // absolute PCI-Kartenadresse
 
 // globalvars:
-RT_TASK ausw1task, ausw2task, ausw3task, ausw4task, scantask, rs232task;
+RT_TASK ausw1task, ausw2task, ausw3task, scantask, rs232task;
 int bitmuster = 0x00; // state der ganzen Maschine
-Queue qs[4];          // Auswurf Warteschlangen
+Queue qs[3];          // Auswurf Warteschlangen
 SEM sem_bit;          // Semaphore for Bitmuster 
-SEM qsSem[4];         // Semaphoren für Auswurf Warteschlangen
+SEM qsSem[3];         // Semaphoren für Auswurf Warteschlangen
 
 void activate(int val) { // schreibe 32 Bit auf Karte
     rt_sem_wait(&sem_bit);
@@ -127,14 +127,14 @@ void auswLoop(long schranke) {
             rt_sem_signal(&qsSem[schranke-1]);
             while (1) {
                 if (!SchrankeUnterbrochen(schranke)) {
-                    if (qVal == schranke && schranke != 4) {
+                    if (qVal == schranke) {
                         rt_sleep(nano2count(ZEITVORAUSW));
                         activate(powx(2, schranke+2));
                         rt_printk("Ausgeworfen!\n");
                         rt_sleep(nano2count(AUSWZEIT));
                         deactivate(powx(2, schranke+2));
                     } else {
-                        if (schranke != 4){
+                        if (schranke < 3){
                             rt_sem_wait(&qsSem[schranke]);
                             enqueue(&qs[schranke], qVal);
                             rt_sem_signal(&qsSem[schranke]);
@@ -206,7 +206,6 @@ static __init int parallel_init(void) {
     rt_task_init(&ausw1task, auswLoop, 1, 3000, 4, 0, 0);
     rt_task_init(&ausw2task, auswLoop, 2, 3000, 5, 0, 0);
     rt_task_init(&ausw3task, auswLoop, 3, 3000, 6, 0, 0);
-    rt_task_init(&ausw4task, auswLoop, 4, 3000, 7, 0, 0);
     rt_task_init(&scantask, scanLoop, 0, 3000, 8, 0, 0);
 
     rt_typed_sem_init(&sem_bit, 1, RES_SEM);
@@ -219,7 +218,6 @@ static __init int parallel_init(void) {
     rt_task_make_periodic(&ausw1task, tstart1, nano2count(500000000));
     rt_task_make_periodic(&ausw2task, tstart1, nano2count(500000000));
     rt_task_make_periodic(&ausw3task, tstart1, nano2count(500000000));
-    rt_task_make_periodic(&ausw4task, tstart1, nano2count(500000000));
     rt_task_make_periodic(&scantask, tstart1, nano2count(500000000));
     rt_printk("Module loaded\n");
     return 0;
@@ -242,7 +240,6 @@ static __exit void parallel_exit(void) {
     rt_task_delete(&ausw1task);
     rt_task_delete(&ausw2task);
     rt_task_delete(&ausw3task);
-    rt_task_delete(&ausw4task);
     rt_task_delete(&scantask);
 
     outb(0, CARD + 0); // 00000000
