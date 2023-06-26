@@ -99,6 +99,7 @@ int fifo_handler(unsigned int fifo)
     // Format the number so it can be processed.
     command[r] = 0;
     char temp[14];
+    sscanf(command,"%s",temp);
 
     if(temp[1] < '0' || temp[1] > '9') return 0;
 
